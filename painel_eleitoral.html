@@ -304,6 +304,9 @@ body{background:var(--body-bg);color:var(--text-primary);font-family:'Segoe UI',
     <div class="nav-item" data-page="page4" onclick="navigate(this,'page4')">
       <i class="bi bi-trophy-fill nav-icon"></i><span class="nav-label">Top 50</span>
     </div>
+    <div class="nav-item" data-page="page5" onclick="navigate(this,'page5')">
+      <i class="bi bi-clock-history nav-icon"></i><span class="nav-label">Histórico de Candidatos</span>
+    </div>
   </div>
   <div class="sidebar-footer">
     <button id="toggleSidebar" onclick="toggleSidebar()"><i class="bi bi-layout-sidebar-reverse"></i></button>
@@ -474,6 +477,48 @@ body{background:var(--body-bg);color:var(--text-primary);font-family:'Segoe UI',
       </div>
     </div>
 
+    <!-- PAGE 5 – HISTÓRICO DE CANDIDATOS -->
+    <div id="page5" class="page">
+      <div class="filter-bar">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-md-3"><label>Município</label><select class="form-select form-select-sm" id="f5_mun"></select></div>
+          <div class="col-6 col-md-2"><label>Ano</label><select class="form-select form-select-sm" id="f5_ano"><option value="">Todos</option></select></div>
+          <div class="col-6 col-md-2"><label>Cargo</label><select class="form-select form-select-sm" id="f5_cargo"><option value="">Todos</option></select></div>
+          <div class="col-6 col-md-3">
+            <label>Candidato (opcional)</label>
+            <input type="text" class="form-control form-control-sm" id="f5_cand"
+              placeholder="Parte do nome…" autocomplete="off"
+              style="background:var(--card-bg);border-color:var(--border-color);color:var(--text-main);border-radius:9px"/>
+          </div>
+          <div class="col-6 col-md-2 d-flex gap-2">
+            <button class="btn-primary-custom flex-fill" onclick="buildPage5()"><i class="bi bi-search"></i> Buscar</button>
+            <button class="btn-success-custom no-print" onclick="printPage5()"><i class="bi bi-printer"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mb-3" id="p5Stats"></div>
+      <div class="row g-3 mb-3"><div class="col-12"><div class="card">
+        <div class="card-header-custom"><div class="card-title"><i class="bi bi-bar-chart-steps"></i> Top 20 Candidatos – Total de Votos na Carreira</div></div>
+        <div class="card-body-p"><div class="chart-wrapper" style="height:360px"><canvas id="chartHistCand"></canvas></div></div>
+      </div></div></div>
+      <div class="card">
+        <div class="card-header-custom">
+          <div class="card-title"><i class="bi bi-table"></i> Histórico por Candidato</div>
+          <div class="d-flex align-items-center gap-2">
+            <span class="pag-info" id="p5PagInfo"></span>
+            <button class="pag-btn" id="p5Prev" onclick="p5PageNav(-1)"><i class="bi bi-chevron-left"></i></button>
+            <button class="pag-btn" id="p5Next" onclick="p5PageNav(1)"><i class="bi bi-chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="p5Table">
+            <thead id="p5Thead"></thead>
+            <tbody id="p5Tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -544,6 +589,126 @@ function addOpts(id,items){
   const el=document.getElementById(id);
   items.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);});
 }
+/* ═══ PAGE 5 – HISTÓRICO DE CANDIDATOS ═══ */
+let p5Data=[],p5Page_n=1;const P5_SIZE=50;
+
+function buildPage5(){
+  const munV=document.getElementById('f5_mun').value;
+  const anoV=document.getElementById('f5_ano').value;
+  const cargoV=document.getElementById('f5_cargo').value;
+  const candQ=(document.getElementById('f5_cand').value||'').trim().toUpperCase();
+  const ai=anoV?ANOS.indexOf(parseInt(anoV)):-1;
+  const cgi=cargoV?CARGOS.indexOf(cargoV):-1;
+  const mi=munV&&munV!=='Todos'?MUNS.indexOf(munV):-1;
+
+  const candMap={};
+  const targetMuns=mi!==-1?[String(mi)]:Object.keys(D.m2);
+  targetMuns.forEach(miStr=>{
+    const munName=MUNS[parseInt(miStr)];
+    (D.m2[miStr]||[]).forEach(r=>{
+      const [rai,rcgi,rci,rpi,rsi,rturno,rvotos]=r;
+      if(ai!==-1&&rai!==ai)return;
+      if(cgi!==-1&&rcgi!==cgi)return;
+      if(candQ&&!CANDS[rci].includes(candQ))return;
+      const key=rci+'_'+rcgi;
+      if(!candMap[key])candMap[key]={ci:rci,nome:CANDS[rci],cargo:CARGOS[rcgi],partidos:new Set(),muns:new Set(),byAno:{}};
+      const e=candMap[key];
+      e.partidos.add(PARTIDOS[rpi]);
+      e.muns.add(munName);
+      const yr=String(ANOS[rai]);
+      if(!e.byAno[yr])e.byAno[yr]={votos:0,status:STATUS[rsi]};
+      e.byAno[yr].votos+=rvotos;
+      if((STATUS[rsi]||'').toUpperCase().includes('ELEITO')&&!(STATUS[rsi]||'').toUpperCase().includes('NÃO')){
+        e.byAno[yr].status=STATUS[rsi];
+      }
+    });
+  });
+
+  p5Data=Object.values(candMap).map(e=>{
+    const totalVotos=Object.values(e.byAno).reduce((a,r)=>a+r.votos,0);
+    const eleicoes=Object.keys(e.byAno).length;
+    const vitorias=Object.values(e.byAno).filter(r=>(r.status||'').toUpperCase().includes('ELEITO')&&!(r.status||'').toUpperCase().includes('NÃO')).length;
+    return{...e,partidos:[...e.partidos].join('/'),muns:[...e.muns].join(', '),totalVotos,eleicoes,vitorias};
+  }).sort((a,b)=>b.totalVotos-a.totalVotos);
+
+  if(!p5Data.length){toast('Nenhum resultado encontrado');return;}
+
+  // Stat cards
+  const totalCands=p5Data.length;
+  const totalEleicoes=p5Data.reduce((a,r)=>a+r.eleicoes,0);
+  const totalVitorias=p5Data.reduce((a,r)=>a+r.vitorias,0);
+  const top=p5Data[0];
+  document.getElementById('p5Stats').innerHTML=`
+    <div class="col-6 col-md-3"><div class="stat-card">
+      <div class="stat-icon" style="background:rgba(129,140,248,.1)"><i class="bi bi-people-fill" style="color:#818cf8"></i></div>
+      <div class="stat-info"><div class="label">Candidatos</div><div class="value">${fmt(totalCands)}</div><div class="sub">encontrados</div></div>
+    </div></div>
+    <div class="col-6 col-md-3"><div class="stat-card">
+      <div class="stat-icon" style="background:rgba(52,211,153,.08)"><i class="bi bi-calendar3" style="color:#34d399"></i></div>
+      <div class="stat-info"><div class="label">Participações</div><div class="value">${fmt(totalEleicoes)}</div><div class="sub">em eleições</div></div>
+    </div></div>
+    <div class="col-6 col-md-3"><div class="stat-card">
+      <div class="stat-icon" style="background:rgba(251,191,36,.08)"><i class="bi bi-trophy-fill" style="color:#fbbf24"></i></div>
+      <div class="stat-info"><div class="label">Eleitos</div><div class="value">${fmt(totalVitorias)}</div><div class="sub">${totalEleicoes?((totalVitorias/totalEleicoes)*100).toFixed(1)+'% taxa':'–'}</div></div>
+    </div></div>
+    <div class="col-6 col-md-3"><div class="stat-card">
+      <div class="stat-icon" style="background:rgba(167,139,250,.08)"><i class="bi bi-star-fill" style="color:#a78bfa"></i></div>
+      <div class="stat-info"><div class="label">Mais Votado</div><div class="value" style="font-size:.9rem">${top.nome.split(' ').slice(0,2).join(' ')}</div><div class="sub">${fmt(top.totalVotos)} votos</div></div>
+    </div></div>`;
+
+  // Chart – top 20
+  const top20=p5Data.slice(0,20);
+  destroyChart('chartHistCand');
+  new Chart(document.getElementById('chartHistCand'),{type:'bar',data:{
+    labels:top20.map(r=>r.nome.split(' ').slice(0,3).join(' ')),
+    datasets:[{label:'Total Votos Carreira',data:top20.map(r=>r.totalVotos),
+      backgroundColor:top20.map((_,i)=>PALETTE[i%PALETTE.length]),borderRadius:4,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${fmt(ctx.raw)} votos`}}},
+      scales:{x:{grid:{color:'rgba(26,35,51,.8)'},ticks:{callback:v=>fmt(v)}},
+              y:{grid:{display:false},ticks:{font:{size:10}}}}}});
+
+  p5Page_n=1;renderP5Table();
+  toast(fmt(totalCands)+' candidatos · '+fmt(totalEleicoes)+' participações','ok');
+}
+
+function renderP5Table(){
+  if(!p5Data.length)return;
+  const anos=ANOS.map(String);
+  // Build header
+  document.getElementById('p5Thead').innerHTML='<tr><th>#</th><th>Candidato</th><th>Cargo</th><th>Partido(s)</th><th>Municípios</th><th>Eleições</th><th>Vitórias</th>'+
+    anos.map(yr=>`<th>${yr}</th>`).join('')+'</tr>';
+  // Build rows
+  const total=p5Data.length,start=(p5Page_n-1)*P5_SIZE;
+  const slice=p5Data.slice(start,start+P5_SIZE);
+  document.getElementById('p5Tbody').innerHTML=slice.map((r,i)=>{
+    const yrCells=anos.map(yr=>{
+      if(!r.byAno[yr])return'<td style="color:var(--text-dim)">–</td>';
+      const {votos,status}=r.byAno[yr];
+      const isEleito=(status||'').toUpperCase().includes('ELEITO')&&!(status||'').toUpperCase().includes('NÃO');
+      const color=isEleito?'#34d399':'#f87171';
+      return`<td><strong style="color:${color}">${fmt(votos)}</strong><br><small style="color:var(--text-dim);font-size:.68rem">${status||''}</small></td>`;
+    }).join('');
+    return`<tr>
+      <td style="color:var(--text-dim);font-weight:700">${start+i+1}</td>
+      <td><strong style="color:#e2e8f0">${r.nome}</strong></td>
+      <td>${r.cargo}</td>
+      <td><span style="color:#818cf8;font-weight:700">${r.partidos}</span></td>
+      <td style="font-size:.8rem;color:var(--text-dim)">${r.muns}</td>
+      <td style="text-align:center"><strong>${r.eleicoes}</strong></td>
+      <td style="text-align:center"><strong style="color:${r.vitorias>0?'#34d399':'var(--text-dim)'}">${r.vitorias}</strong></td>
+      ${yrCells}</tr>`;
+  }).join('');
+  const pages=Math.ceil(total/P5_SIZE)||1;
+  document.getElementById('p5PagInfo').textContent=`${start+1}–${Math.min(start+P5_SIZE,total)} de ${fmt(total)}`;
+  document.getElementById('p5Prev').disabled=p5Page_n<=1;
+  document.getElementById('p5Next').disabled=p5Page_n>=pages;
+}
+
+function p5PageNav(dir){const pages=Math.ceil(p5Data.length/P5_SIZE)||1;p5Page_n=Math.max(1,Math.min(pages,p5Page_n+dir));renderP5Table();}
+
+function printPage5(){window.print();}
+
 function initSelects(){
   sel('f1_ano',ANOS,'',ANOS[ANOS.length-1]);
   sel('f1_mun',MUNS,'Todos');
@@ -552,6 +717,8 @@ function initSelects(){
   addOpts('f2_ano',ANOS);addOpts('f2_cargo',CARGOS);addOpts('f2_partido',PARTIDOS);
   addOpts('f4_ano',ANOS);addOpts('f4_cargo',CARGOS);addOpts('f4_status',STATUS);
   addOpts('f4_partido',PARTIDOS);addOpts('f4_mun',MUNS);
+  sel('f5_mun',MUNS,'Todos');
+  addOpts('f5_ano',ANOS);addOpts('f5_cargo',CARGOS);
 }
 
 /* ═══ PAGE 1 ═══ */
