@@ -345,9 +345,21 @@ body{background:var(--body-bg);color:var(--text-primary);font-family:'Segoe UI',
           <div class="card-body-p"><div class="chart-wrapper"><canvas id="chartStatus"></canvas></div></div>
         </div></div>
       </div>
-      <div class="row g-3"><div class="col-12"><div class="card">
+      <div class="row g-3 mb-3"><div class="col-12"><div class="card">
         <div class="card-header-custom"><div class="card-title"><i class="bi bi-geo-alt-fill"></i> Top 20 Bairros</div></div>
         <div class="card-body-p"><div class="chart-wrapper" style="height:340px"><canvas id="chartBairro"></canvas></div></div>
+      </div></div></div>
+      <div class="row g-3"><div class="col-12"><div class="card">
+        <div class="card-header-custom">
+          <div class="card-title"><i class="bi bi-person-lines-fill"></i> Candidatos</div>
+          <span class="pag-info" id="p1CandTotal"></span>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Candidato</th><th>Partido</th><th>Cargo</th><th>Status</th><th>Votos</th></tr></thead>
+            <tbody id="tbodyCandP1"></tbody>
+          </table>
+        </div>
       </div></div></div>
     </div>
 
@@ -557,8 +569,23 @@ function buildPage1(){
   D.m1p.forEach(r=>{if(m(r,0,ai)&&m(r,1,mi)&&m(r,2,cgi)&&m(r,3,t)){const k=PARTIDOS[r[4]];pMap[k]=(pMap[k]||0)+r[5];}});
   D.m1s.forEach(r=>{if(m(r,0,ai)&&m(r,1,mi)&&m(r,2,cgi)&&m(r,3,t)){const k=STATUS[r[4]];sMap[k]=(sMap[k]||0)+r[5];}});
   D.m1b.forEach(r=>{if(m(r,0,ai)&&m(r,1,mi)&&m(r,2,cgi)&&m(r,3,t)){const k=BAIRROS[r[4]];bMap[k]=(bMap[k]||0)+r[5];}});
+  // Aggregate candidates from m2
+  const candMap={};
+  const targetMuns=mi!==-1?[String(mi)]:Object.keys(D.m2);
+  targetMuns.forEach(miStr=>{
+    (D.m2[miStr]||[]).forEach(r=>{
+      const [rai,rcgi,rci,rpi,rsi,rturno,rvotos]=r;
+      if(ai!==-1&&rai!==ai)return;
+      if(cgi!==-1&&rcgi!==cgi)return;
+      if(t!==-1&&rturno!==t)return;
+      if(!candMap[rci])candMap[rci]={votos:0,cargo:CARGOS[rcgi],partido:PARTIDOS[rpi],status:STATUS[rsi]};
+      candMap[rci].votos+=rvotos;
+    });
+  });
+  const candList=Object.entries(candMap).map(([ci,v])=>({ci:+ci,nome:CANDS[+ci],...v})).sort((a,b)=>b.votos-a.votos);
   const tv=Object.values(pMap).reduce((a,b)=>a+b,0);
   const tp=Object.entries(pMap).sort((a,b)=>b[1]-a[1])[0];
+  const tc=candList[0];
   document.getElementById('p1Stats').innerHTML=`
     <div class="col-6 col-md-3"><div class="stat-card">
       <div class="stat-icon" style="background:rgba(129,140,248,.1)"><i class="bi bi-check2-circle" style="color:#818cf8"></i></div>
@@ -574,7 +601,7 @@ function buildPage1(){
     </div></div>
     <div class="col-6 col-md-3"><div class="stat-card">
       <div class="stat-icon" style="background:rgba(251,191,36,.08)"><i class="bi bi-trophy" style="color:#fbbf24"></i></div>
-      <div class="stat-info"><div class="label">Líder</div><div class="value" style="font-size:1.05rem">${tp?tp[0]:'–'}</div><div class="sub">${tp?fmt(tp[1])+' votos':'–'}</div></div>
+      <div class="stat-info"><div class="label">Top Candidato</div><div class="value" style="font-size:.9rem">${tc?tc.nome.split(' ').slice(0,2).join(' '):'–'}</div><div class="sub">${tc?fmt(tc.votos)+' votos · '+tc.partido:'–'}</div></div>
     </div></div>`;
   const pS=Object.entries(pMap).sort((a,b)=>b[1]-a[1]).slice(0,20);
   destroyChart('chartPartido');
@@ -593,7 +620,16 @@ function buildPage1(){
   new Chart(document.getElementById('chartBairro'),{type:'bar',data:{labels:bS.map(x=>x[0]),datasets:[{label:'Votos',data:bS.map(x=>x[1]),backgroundColor:'rgba(129,140,248,.6)',borderColor:'#818cf8',borderWidth:1.5,borderRadius:4,borderSkipped:false}]},
     options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fmt(ctx.raw)+' votos'}}},
       scales:{x:{grid:{color:'rgba(26,35,51,.8)'},ticks:{callback:v=>fmt(v)}},y:{grid:{display:false},ticks:{font:{size:10}}}}}});
-  toast(fmt(tv)+' votos encontrados','ok');
+  // Populate candidate table
+  document.getElementById('p1CandTotal').textContent=fmt(candList.length)+' candidatos';
+  document.getElementById('tbodyCandP1').innerHTML=candList.slice(0,200).map((r,i)=>`<tr>
+    <td style="color:var(--text-dim);font-weight:700">${i+1}</td>
+    <td><strong style="color:#e2e8f0">${r.nome}</strong></td>
+    <td><span style="color:#818cf8;font-weight:700">${r.partido}</span></td>
+    <td>${r.cargo}</td>
+    <td>${badge(r.status)}</td>
+    <td><strong style="color:#e2e8f0">${fmt(r.votos)}</strong></td></tr>`).join('');
+  toast(fmt(tv)+' votos · '+fmt(candList.length)+' candidatos','ok');
 }
 
 /* ═══ PAGE 2 ═══ */
